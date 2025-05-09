@@ -1,7 +1,7 @@
 # Kidex
 
 A fork from [Kirottu](https://github.com/Kirottu/kidex) with the pr(#4 - Deserialize path strings from config directly into PathBuf
-) by [Lxtharia](https://github.com/Lxtharia) and to serve as a base for any personal changes
+) by [Lxtharia](https://github.com/Lxtharia) and to serve as a base for any personal changes, which are largely aesthetic.
 
 A simple file indexing service
 
@@ -34,3 +34,10 @@ Config(
 To start the service, simply run `kidex` and make sure it runs in the background. To get data from the service,
 the provided `kidex-client` binary can be used to get JSON output of the index. Alternatively a tool like [Anyrun](https://github.com/Kirottu/anyrun)
 (with the kidex plugin) can be used to search for files using kidex.
+
+
+## Additionally 
+Included here, that is not in the original is the anyrun plugin, the only change that is made vs the included is that it will clear results as input is cleared.
+
+## Note
+I'm not bothering with making a pr to either anyrun or kidex as they are in maintenance.
