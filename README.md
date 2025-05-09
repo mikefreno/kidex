@@ -10,6 +10,7 @@ From project root
 
 ```sh
 cargo install --path ./kidex
+cargo install --path ./kidex-client
 ```
 
 ## Configuration
