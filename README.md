@@ -1,16 +1,15 @@
 # Kidex
 
+A fork from [Kirottu](https://github.com/Kirottu/kidex) with the pr(#4 - Deserialize path strings from config directly into PathBuf
+) by [Lxtharia](https://github.com/Lxtharia) and to serve as a base for any personal changes
+
 A simple file indexing service
 
-## Installation
-
-On Arch or Arch-based distros the AUR package [kidex-git](https://aur.archlinux.org/packages/kidex-git) can be installed.
-
 ### Manual installation
-Simply run the following in the projects directory.
+From project root
 
 ```sh
-cargo install --path .
+cargo install --path ./kidex
 ```
 
 ## Configuration
@@ -21,7 +20,7 @@ Config(
   ignored: [], // A list of patterns to be ignored in all directories
   directories: [
     WatchDir(
-      path: "/home/kirottu/Documents", // The root folder to be indexed
+      path: "~/Documents", // The root folder to be indexed
       recurse: true, // Recursively index and watch all subfolders
       ignored: [], // Ignore patterns specifically for this directory
     ),
