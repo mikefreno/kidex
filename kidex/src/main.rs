@@ -15,9 +15,11 @@ use tokio::{
         mpsc::{self, Receiver, Sender},
         Mutex,
     },
+    time
 };
 use std::path;
-use std::process::Command;
+
+use kidex_common::util::{get_index, regenerate_index, reload_config, shutdown_server};
 
 mod index;
 
@@ -29,7 +31,7 @@ pub struct Config {
 }
 
 
-async fn watch_config(config_path: String) {
+async fn watch_config(config_path: String, ipc_sender:Sender<Message>) {
     let mut config_watcher = Inotify::init().expect("Failed to init config inotify");
     config_watcher.add_watch(
         &config_path,
@@ -47,16 +49,14 @@ async fn watch_config(config_path: String) {
             for _event in events {
                 let now = std::time::Instant::now();
                 if now.duration_since(last_reload) >= debounce_duration {
-                    match Command::new("kidex-client")
-                        .arg("reload-config")
-                        .output() 
+                    match reload_config().unwrap()
                     {
-                        Ok(_) => {
-                            log::info!("Config reload triggered due to file change");
-                            last_reload = now;
-                        },
-                        Err(e) => log::error!("Failed to trigger config reload: {}", e),
+                        Ok(_) => {}
+                        Err(why) => {
+                            log::error!("Failed to autorefresh config: {}", why);
+                        }
                     }
+                    last_reload = now;
                 }
             }
         }
