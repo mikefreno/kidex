@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, fs, io, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, env, fs, io, path::PathBuf, sync::Arc, time::{Duration, Instant}};
 
 use futures::StreamExt;
 use globber::Pattern;
@@ -19,8 +19,6 @@ use tokio::{
 };
 use std::path;
 
-use kidex_common::util::{get_index, regenerate_index, reload_config, shutdown_server};
-
 mod index;
 
 #[derive(Deserialize)]
@@ -31,7 +29,7 @@ pub struct Config {
 }
 
 
-async fn watch_config(config_path: String, ipc_sender:Sender<Message>) {
+async fn watch_config(config_path: String, ipc_sender: Sender<EventLoopMsg>) {
     let mut config_watcher = Inotify::init().expect("Failed to init config inotify");
     config_watcher.add_watch(
         &config_path,
@@ -39,22 +37,20 @@ async fn watch_config(config_path: String, ipc_sender:Sender<Message>) {
     ).expect("Failed to watch config file");
 
     let mut buffer = [0; 1024];
-    let mut last_reload = std::time::Instant::now();
-    let debounce_duration = Duration::from_secs(1); // Adjust as needed
+    let mut last_reload = Instant::now();
+    let debounce_duration = Duration::from_secs(1);
 
     loop {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        time::sleep(Duration::from_millis(100)).await;
         
         if let Ok(events) = config_watcher.read_events(&mut buffer) {
             for _event in events {
-                let now = std::time::Instant::now();
+                let now = Instant::now();
                 if now.duration_since(last_reload) >= debounce_duration {
-                    match reload_config().unwrap()
-                    {
-                        Ok(_) => {}
-                        Err(why) => {
-                            log::error!("Failed to autorefresh config: {}", why);
-                        }
+                    // Send reload message through IPC channel
+                    if let Err(e) = ipc_sender.send(EventLoopMsg::Reload).await {
+                        log::error!("Failed to send reload config message: {}", e);
+                        continue;
                     }
                     last_reload = now;
                 }
@@ -173,13 +169,14 @@ async fn main() {
         Signals::new(TERM_SIGNALS).unwrap(),
     ));
     // Spawn IPC task
-    tokio::spawn(ipc_task(listener, index.clone(), ipc_tx, ipc_rx));
+    tokio::spawn(ipc_task(listener, index.clone(), ipc_tx.clone(), ipc_rx));
 
 
     // Spawn task watching for changes
     let config_path_clone = config_path.clone();
+    let ipc_sender_clone = ipc_tx.clone();
     tokio::spawn(async move {
-        watch_config(config_path_clone).await;
+        watch_config(config_path_clone, ipc_sender_clone).await;
     });
 
     // Buffer used by inotify
