@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::env;
 
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +22,7 @@ pub enum IpcResponse {
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct IndexEntry {
+    #[serde(serialize_with = "serialize_path_with_tilde")]
     pub path: PathBuf,
     pub directory: bool,
 }
@@ -114,4 +116,23 @@ pub mod util {
             _ => Err(Error::Unknown),
         }
     }
+}
+
+impl IndexEntry {
+    fn convert_home_path(path: &PathBuf) -> String {
+        if let Ok(home) = env::var("HOME") {
+            let path_str = path.to_string_lossy();
+            if path_str.starts_with(&home) {
+                return format!("~{}", &path_str[home.len()..]);
+            }
+        }
+        path.to_string_lossy().into_owned()
+    }
+}
+
+fn serialize_path_with_tilde<S>(path: &PathBuf, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&IndexEntry::convert_home_path(path))
 }

@@ -206,7 +206,7 @@ impl Index {
         if watch_dir
             .ignored
             .iter()
-            .any(|pat| pat.matches(&path.to_string_lossy()))
+            .any(|pat| pat.matches(&full_path.to_string_lossy()) || pat.matches(&path.to_string_lossy()))
         {
             return Ok(None);
         }

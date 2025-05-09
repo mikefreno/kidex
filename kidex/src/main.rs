@@ -3,7 +3,7 @@ use std::{collections::HashMap, env, fs, io, path::PathBuf, sync::Arc, time::Dur
 use futures::StreamExt;
 use globber::Pattern;
 use index::{GetPath, Index};
-use inotify::{EventMask, Inotify, WatchDescriptor};
+use inotify::{EventMask, Inotify, WatchDescriptor, WatchMask};
 use kidex_common::{IndexEntry, IpcCommand, IpcResponse, DEFAULT_SOCKET};
 use serde::{de::Error, Deserialize, Deserializer};
 use signal_hook::consts::TERM_SIGNALS;
@@ -17,6 +17,7 @@ use tokio::{
     },
 };
 use std::path;
+use std::process::Command;
 
 mod index;
 
@@ -25,6 +26,41 @@ pub struct Config {
     directories: Vec<WatchDir>,
     #[serde(deserialize_with = "parse_pattern_vec")]
     ignored: Vec<Pattern>,
+}
+
+
+async fn watch_config(config_path: String) {
+    let mut config_watcher = Inotify::init().expect("Failed to init config inotify");
+    config_watcher.add_watch(
+        &config_path,
+        WatchMask::MODIFY | WatchMask::CLOSE_WRITE
+    ).expect("Failed to watch config file");
+
+    let mut buffer = [0; 1024];
+    let mut last_reload = std::time::Instant::now();
+    let debounce_duration = Duration::from_secs(1); // Adjust as needed
+
+    loop {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        
+        if let Ok(events) = config_watcher.read_events(&mut buffer) {
+            for _event in events {
+                let now = std::time::Instant::now();
+                if now.duration_since(last_reload) >= debounce_duration {
+                    match Command::new("kidex-client")
+                        .arg("reload-config")
+                        .output() 
+                    {
+                        Ok(_) => {
+                            log::info!("Config reload triggered due to file change");
+                            last_reload = now;
+                        },
+                        Err(e) => log::error!("Failed to trigger config reload: {}", e),
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Custom parser to handle the patterns
@@ -138,6 +174,13 @@ async fn main() {
     ));
     // Spawn IPC task
     tokio::spawn(ipc_task(listener, index.clone(), ipc_tx, ipc_rx));
+
+
+    // Spawn task watching for changes
+    let config_path_clone = config_path.clone();
+    tokio::spawn(async move {
+        watch_config(config_path_clone).await;
+    });
 
     // Buffer used by inotify
     let mut buffer = [0; 1024];
