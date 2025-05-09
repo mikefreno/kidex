@@ -1,9 +1,5 @@
 use std::{
-    collections::HashMap,
-    env, fs, io,
-    path::PathBuf,
-    sync::Arc,
-    time::{Duration, Instant},
+    collections::HashMap, env, fs, io, path::PathBuf, sync::Arc, time::{Duration, Instant}
 };
 
 use futures::StreamExt;
@@ -34,7 +30,7 @@ pub struct Config {
     ignored: Vec<Pattern>,
 }
 
-async fn watch_config(config_path: String, ipc_sender: Sender<EventLoopMsg>) {
+async fn watch_config(config_path: String, ipc_tx: Sender<EventLoopMsg>) {
     let mut config_watcher = Inotify::init().expect("Failed to init config inotify");
     config_watcher
         .add_watch(&config_path, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)
@@ -51,11 +47,7 @@ async fn watch_config(config_path: String, ipc_sender: Sender<EventLoopMsg>) {
             for _event in events {
                 let now = Instant::now();
                 if now.duration_since(last_reload) >= debounce_duration {
-                    // Send reload message through IPC channel
-                    if let Err(e) = ipc_sender.send(EventLoopMsg::Reload).await {
-                        log::error!("Failed to send reload config message: {}", e);
-                        continue;
-                    }
+                    ipc_tx.send(EventLoopMsg::Reload).await.unwrap();
                     last_reload = now;
                 }
             }
@@ -148,7 +140,7 @@ async fn main() {
         }
     );
     let mut inotify = Inotify::init().expect("Failed to init inotify");
-    let mut config: Config = ron::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    let config: Config = ron::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
     let mut index = Index::new();
 
     index
@@ -190,6 +182,7 @@ async fn main() {
         tokio::time::sleep(Duration::from_millis(10)).await;
         match events_rx.try_recv() {
             Ok(event) => match event {
+
                 EventLoopMsg::FullIndex => {
                     index
                         .lock()
@@ -202,20 +195,10 @@ async fn main() {
                 EventLoopMsg::Reload => {
                     match ron::from_str::<Config>(&fs::read_to_string(&config_path).unwrap()) {
                         Ok(new_config) => {
-                            // Clear
                             index
                                 .lock()
                                 .await
-                                .clear_index(&mut inotify)
-                                .unwrap();
-
-                            config = new_config;
-
-                            // Reindex with new config
-                            index
-                                .lock()
-                                .await
-                                .full_index(&mut inotify, &config)
+                                .full_index(&mut inotify, &new_config)
                                 .unwrap();
 
                             log::info!("Config reloaded and reindexed with new patterns");
@@ -235,7 +218,7 @@ async fn main() {
         let events = match inotify.read_events(&mut buffer) {
             Ok(events) => events,
             // The next event(s) is/are not ready yet if the error is WouldBlock
-            // so it counterintuitively is not actually an error.
+            // so it counterintuitively it is not actually an error.
             Err(why) => {
                 if why.kind() != io::ErrorKind::WouldBlock {
                     log::error!("Error reading inotify events: {}", why);
