@@ -1,4 +1,10 @@
-use std::{collections::HashMap, env, fs, io, path::PathBuf, sync::Arc, time::{Duration, Instant}};
+use std::{
+    collections::HashMap,
+    env, fs, io,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use futures::StreamExt;
 use globber::Pattern;
@@ -8,6 +14,7 @@ use kidex_common::{IndexEntry, IpcCommand, IpcResponse, DEFAULT_SOCKET};
 use serde::{de::Error, Deserialize, Deserializer};
 use signal_hook::consts::TERM_SIGNALS;
 use signal_hook_tokio::Signals;
+use std::path;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufStream},
     net::UnixListener,
@@ -15,9 +22,8 @@ use tokio::{
         mpsc::{self, Receiver, Sender},
         Mutex,
     },
-    time
+    time,
 };
-use std::path;
 
 mod index;
 
@@ -28,13 +34,11 @@ pub struct Config {
     ignored: Vec<Pattern>,
 }
 
-
 async fn watch_config(config_path: String, ipc_sender: Sender<EventLoopMsg>) {
     let mut config_watcher = Inotify::init().expect("Failed to init config inotify");
-    config_watcher.add_watch(
-        &config_path,
-        WatchMask::MODIFY | WatchMask::CLOSE_WRITE
-    ).expect("Failed to watch config file");
+    config_watcher
+        .add_watch(&config_path, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)
+        .expect("Failed to watch config file");
 
     let mut buffer = [0; 1024];
     let mut last_reload = Instant::now();
@@ -42,7 +46,7 @@ async fn watch_config(config_path: String, ipc_sender: Sender<EventLoopMsg>) {
 
     loop {
         time::sleep(Duration::from_millis(100)).await;
-        
+
         if let Ok(events) = config_watcher.read_events(&mut buffer) {
             for _event in events {
                 let now = Instant::now();
@@ -171,7 +175,6 @@ async fn main() {
     // Spawn IPC task
     tokio::spawn(ipc_task(listener, index.clone(), ipc_tx.clone(), ipc_rx));
 
-
     // Spawn task watching for changes
     let config_path_clone = config_path.clone();
     let ipc_sender_clone = ipc_tx.clone();
@@ -195,17 +198,27 @@ async fn main() {
                         .unwrap();
                 }
                 EventLoopMsg::Quit => break,
+
                 EventLoopMsg::Reload => {
-                    match serde_json::from_str::<Config>(&fs::read_to_string(&config_path).unwrap())
-                    {
+                    match ron::from_str::<Config>(&fs::read_to_string(&config_path).unwrap()) {
                         Ok(new_config) => {
+                            // Clear
+                            index
+                                .lock()
+                                .await
+                                .clear_index(&mut inotify)
+                                .unwrap();
+
                             config = new_config;
-                            // Reindex everything if the config was reloaded
+
+                            // Reindex with new config
                             index
                                 .lock()
                                 .await
                                 .full_index(&mut inotify, &config)
                                 .unwrap();
+
+                            log::info!("Config reloaded and reindexed with new patterns");
                         }
                         Err(why) => {
                             log::error!("Failed to load config: {}", why);
