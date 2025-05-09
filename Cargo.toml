@@ -1,2 +1,2 @@
 [workspace]
-members = ["kidex", "kidex-common", "kidex-client"]
+members = ["kidex", "kidex-common", "kidex-client", "anyrun_plugin"]
